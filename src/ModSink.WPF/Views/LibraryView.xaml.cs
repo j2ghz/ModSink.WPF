@@ -1,4 +1,5 @@
 ﻿using ModSink.WPF.ViewModel;
+using ModSink.WPF.ViewModels;
 using ReactiveUI;
 using System;
 using System.Collections.Generic;
@@ -15,7 +16,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Shapes;
 
-namespace ModSink.WPF.View
+namespace ModSink.WPF.Views
 {
     /// <summary>
     /// Interaction logic for LibraryView.xaml
