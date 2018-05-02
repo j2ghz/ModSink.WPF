@@ -17,15 +17,15 @@ namespace ModSink.WPF.ViewModel
             Settings = settings;
             AddRepoUrl = ReactiveCommand.CreateFromTask(async () =>
             {
-                var repoUrl = await DialogCoordinator.ShowInputAsync(this, "Add new Repo",
-                    "Enter the url for the new Repo you want to add.\nIt usually looks like https://example.com/someFolder/repo.bin");
-                if (string.IsNullOrWhiteSpace(repoUrl)) return;
-                settings.Client.RepoUrls.Edit(l => l.Add(repoUrl));
+                var groupUrl = await DialogCoordinator.ShowInputAsync(this, "Add new Group",
+                    "Enter the url for the new Group you want to add.\nIt usually looks like https://example.com/someFolder/group.bin");
+                if (string.IsNullOrWhiteSpace(groupUrl)) return;
+                settings.Client.GroupUrls.Edit(l => l.Add(groupUrl));
             });
             var isRepoSelected =
                 this.WhenAnyValue(x => x.RepoSelected,
                     r => !string.IsNullOrWhiteSpace(r));
-            RemoveRepoUrl = ReactiveCommand.Create(() => settings.Client.RepoUrls.Edit(l => l.Remove(RepoSelected)),
+            RemoveRepoUrl = ReactiveCommand.Create(() => settings.Client.GroupUrls.Edit(l => l.Remove(RepoSelected)),
                 isRepoSelected);
         }
 
