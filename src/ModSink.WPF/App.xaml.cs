@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Reactive;
 using System.Reflection;
@@ -9,12 +10,14 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using Autofac;
+using Microsoft.AppCenter;
+using Microsoft.AppCenter.Analytics;
+using Microsoft.AppCenter.Crashes;
 using ModSink.Common.Client;
 using ModSink.Core;
 using ModSink.WPF.Helpers;
 using ReactiveUI;
 using Serilog;
-using Serilog.Core;
 using Serilog.Debugging;
 using Serilog.Sinks.Sentry;
 using Squirrel;
@@ -36,7 +39,10 @@ namespace ModSink.WPF
             var builder = new ContainerBuilder();
 
             builder.RegisterType<BinaryFormatter>().As<IFormatter>().SingleInstance();
-            builder.Register(_ => new LocalStorageService(new Uri(System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop),"ModSink_Data")))).AsImplementedInterfaces()
+            builder.Register(_ =>
+                    new LocalStorageService(new Uri(
+                        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "ModSink_Data"))))
+                .AsImplementedInterfaces()
                 .SingleInstance();
             builder.RegisterAssemblyTypes(typeof(IModSink).Assembly, typeof(Common.ModSink).Assembly)
                 .Where(t => t.Name != "LocalStorageService").AsImplementedInterfaces().SingleInstance();
@@ -56,6 +62,7 @@ namespace ModSink.WPF
 
         private void CheckUpdates()
         {
+            Analytics.TrackEvent(nameof(CheckUpdates));
             var updateLog = Log.ForContext<UpdateManager>();
             Task.Factory.StartNew(async () =>
             {
@@ -79,6 +86,18 @@ namespace ModSink.WPF
                     updateLog.Debug("Update check finished");
                 }
             });
+        }
+
+        private void FatalException(Exception e, Type source)
+        {
+            ConsoleManager.Show();
+            log.ForContext(source).Fatal(e, "{exceptionText}", e.Demystify().ToString());
+            if (Debugger.IsAttached == false)
+            {
+                Console.WriteLine(WPF.Properties.Resources.FatalExceptionPressAnyKeyToContinue);
+                Console.ReadKey();
+                Current.Shutdown(1);
+            }
         }
 
         protected override void OnStartup(StartupEventArgs e)
@@ -122,47 +141,48 @@ namespace ModSink.WPF
                 .CreateLogger();
             log = Log.ForContext<App>();
             log.Information("Log initialized");
-            AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+            if (!Debugger.IsAttached)
             {
-                ConsoleManager.Show();
-                log.ForContext(sender.GetType()).Fatal((args.ExceptionObject as Exception), "{exception}",
-                    nameof(AppDomain.CurrentDomain.UnhandledException));
-            };
-            Current.DispatcherUnhandledException += (sender, args) =>
-            {
-                ConsoleManager.Show();
-                log.ForContext(sender.GetType()).Fatal(args.Exception, "{exception}",
-                    nameof(DispatcherUnhandledException));
-            };
-            //AppDomain.CurrentDomain.FirstChanceException += (sender, args) =>
-            //{
-            //    log.ForContext(sender.GetType()).Verbose(args.Exception, "FirstChanceException");
-            //};
+                AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
+                {
+                    FatalException(args.ExceptionObject as Exception,
+                        sender.GetType());
+                };
+                Current.DispatcherUnhandledException += (sender, args) =>
+                {
+                    args.Handled = true;
+                    FatalException(args.Exception, sender.GetType());
+                };
+
+                RxApp.DefaultExceptionHandler = Observer.Create<Exception>(
+                    ex =>
+                    {
+                        if (Debugger.IsAttached) Debugger.Break();
+                        log.ForContext(typeof(RxApp))
+                            .Error(ex, "An uncaught exception in ReactiveUI (probably binding)");
+                        Dispatcher.Invoke(() => throw ex);
+                    },
+                    ex =>
+                    {
+                        if (Debugger.IsAttached) Debugger.Break();
+                        Dispatcher.Invoke(() => throw new NotImplementedException());
+                    },
+                    () =>
+                    {
+                        if (Debugger.IsAttached) Debugger.Break();
+                        Dispatcher.Invoke(() => throw new NotImplementedException());
+                    }
+                );
+            }
+
             PresentationTraceSources.Refresh();
             PresentationTraceSources.DataBindingSource.Listeners.Add(new RelayTraceListener(m =>
             {
-                log.ForContext(typeof(PresentationTraceSources)).Error(m);
+                log.ForContext(typeof(PresentationTraceSources)).Warning(m);
             }));
             PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning | SourceLevels.Error;
-            RxApp.DefaultExceptionHandler = Observer.Create<Exception>(
-                ex =>
-                {
-                    if (Debugger.IsAttached) Debugger.Break();
-                    log.ForContext(typeof(RxApp)).Fatal(ex, "An uncaught exception in ReactiveUI (probably binding)");
-                    Dispatcher.Invoke(() => throw ex);
-                },
-                ex =>
-                {
-                    if (Debugger.IsAttached) Debugger.Break();
-                    log.ForContext(typeof(RxApp)).Fatal(ex, "An uncaught exception in ReactiveUI (probably binding)");
-                    Dispatcher.Invoke(() => throw ex);
-                },
-                () =>
-                {
-                    if (Debugger.IsAttached) Debugger.Break();
-                    Dispatcher.Invoke(() => throw new NotImplementedException());
-                }
-            );
+            AppCenter.Start("5f28a034-bd8f-4f69-9eaa-7e5c228ed328", typeof(Analytics), typeof(Crashes));
+            
         }
     }
 }
